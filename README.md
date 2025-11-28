@@ -1,1 +1,0 @@
-# Terraform-Jenkins-deploye-Jarvis-Desktop-Voice-Assistant
