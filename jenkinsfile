@@ -86,7 +86,7 @@ Environment=PATH=${REMOTE_DIR}/venv/bin:/usr/bin:/bin
 Environment=DISPLAY=:99
 Restart=on-failure
 RestartSec=5
-ExecStart=${REMOTE_DIR}/venv/bin/python ${REMOTE_DIR}/Jarvis/jarvis.py
+ExecStart=${REMOTE_DIR}/venv/bin/python ${REMOTE_DIR}/jarvis/jarvis.py
 StandardOutput=append:${REMOTE_DIR}/jarvis.stdout.log
 StandardError=append:${REMOTE_DIR}/jarvis.stderr.log
 
