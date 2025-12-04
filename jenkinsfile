@@ -15,7 +15,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/aniket-jagadale/Terraform-Jenkins-Jarvis-Desktop-Voice-Assistant.git'
+                    url: 'https://github.com/spandankolhe/Terraform-Jenkins-Ec2-Jarvis-Desktop-Voice-Assistant.git'
             }
         }
 
