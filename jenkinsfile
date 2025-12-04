@@ -2,16 +2,15 @@ pipeline {
     agent any
 
     environment {
-        REMOTE_USER = "ubuntu"
-        REMOTE_HOST = "13.233.151.71"
-        REMOTE_DIR  = "/home/ubuntu/jarvis"
-        SSH_OPTS    = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        CRED_ID     = "python-app-key"
-        SERVICE_NAME = "jarvis.service"
+        REMOTE_USER   = "ubuntu"
+        REMOTE_HOST   = "13.233.151.71"
+        REMOTE_DIR    = "/home/ubuntu/jarvis"
+        SSH_OPTS      = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        CRED_ID       = "python-app-key"            
+        SERVICE_NAME  = "jarvis.service"
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -21,20 +20,20 @@ pipeline {
 
         stage('Package & Transfer') {
             steps {
+                
+                sh 'which rsync || echo "rsync missing on agent; install it"'
+
                 sshagent(credentials: ["${CRED_ID}"]) {
                     sh """
-                        # Create remote directory
+                        # create remote dir and rsync code
                         ssh ${SSH_OPTS} ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p ${REMOTE_DIR}"
-
-                        # Use SSH options for rsync
-                        rsync -avz -e "ssh ${SSH_OPTS}" \
-                        --delete --exclude='.git' ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+                        rsync -avz -e "ssh ${SSH_OPTS}" --delete --exclude='.git' ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
                     """
                 }
             }
         }
 
-        stage('Remote: Setup venv & install updated dependencies') {
+        stage('Remote: Setup venv & install deps') {
             steps {
                 sshagent(credentials: ["${CRED_ID}"]) {
                     sh """
@@ -42,20 +41,28 @@ ssh ${SSH_OPTS} ${REMOTE_USER}@${REMOTE_HOST} << 'EOF'
 set -e
 cd ${REMOTE_DIR}
 
-echo "Installing Python dependencies..."
+# update package cache (ignore failures so pipeline doesn't break permanently)
 sudo apt update -y || true
-sudo apt install -y python3 python3-pip python3-venv python3.12-venv python3.12-full espeak-ng espeak-ng-data || true
 
-# Create venv if not exists
+# Install python and common dependencies; adjust packages if using different Ubuntu version
+sudo apt install -y python3 python3-pip python3-venv espeak-ng espeak-ng-data rsync || true
+
+# Create venv (use python3)
 if [ ! -d "venv" ]; then
   python3 -m venv venv
 fi
 
+# Activate venv and install requirements safely
 . venv/bin/activate
-pip install --upgrade pip setuptools wheel || true
+python -m pip install --upgrade pip setuptools wheel || true
 
 if [ -f requirements.txt ]; then
-  pip install -r requirements.txt || true
+  python -m pip install -r requirements.txt || true
+fi
+
+# Make sure main script is executable
+if [ -f Jarvis/jarvis.py ]; then
+  chmod +x Jarvis/jarvis.py || true
 fi
 
 EOF
@@ -64,7 +71,7 @@ EOF
             }
         }
 
-        stage('Remote: Create/update systemd unit') {
+        stage('Remote: Create/Update systemd unit') {
             steps {
                 sshagent(credentials: ["${CRED_ID}"]) {
                     sh """
@@ -79,14 +86,14 @@ Description=Jarvis Desktop Voice Assistant
 After=network.target
 
 [Service]
-User=ubuntu
-Group=ubuntu
+User=${REMOTE_USER}
+Group=${REMOTE_USER}
 WorkingDirectory=${REMOTE_DIR}
 Environment=PATH=${REMOTE_DIR}/venv/bin:/usr/bin:/bin
 Environment=DISPLAY=:99
 Restart=on-failure
 RestartSec=5
-ExecStart=${REMOTE_DIR}/venv/bin/python ${REMOTE_DIR}/jarvis/jarvis.py
+ExecStart=${REMOTE_DIR}/venv/bin/python ${REMOTE_DIR}/Jarvis/jarvis.py
 StandardOutput=append:${REMOTE_DIR}/jarvis.stdout.log
 StandardError=append:${REMOTE_DIR}/jarvis.stderr.log
 
@@ -94,9 +101,10 @@ StandardError=append:${REMOTE_DIR}/jarvis.stderr.log
 WantedBy=multi-user.target
 UNIT
 
+# reload and enable
 sudo systemctl daemon-reload
-echo "Updated service file -> \$UNITFILE"
-
+sudo systemctl enable ${SERVICE_NAME} || true
+echo "Updated and enabled service -> \$UNITFILE"
 EOF
 """
                 }
@@ -108,12 +116,12 @@ EOF
                 sshagent(credentials: ["${CRED_ID}"]) {
                     sh """
 ssh ${SSH_OPTS} ${REMOTE_USER}@${REMOTE_HOST} << 'EOF'
-sudo systemctl restart ${SERVICE_NAME}
+set -e
+sudo systemctl restart ${SERVICE_NAME} || true
 sleep 2
-sudo systemctl status ${SERVICE_NAME} --no-pager -n 30 || true
-
-echo "---- Latest logs ----"
-sudo journalctl -u ${SERVICE_NAME} -n 30 --no-pager || true
+sudo systemctl status ${SERVICE_NAME} --no-pager -n 50 || true
+echo "---- Latest journal logs ----"
+sudo journalctl -u ${SERVICE_NAME} -n 50 --no-pager || true
 EOF
 """
                 }
